@@ -29,7 +29,7 @@ const AutoResizeTextarea = ({ value, onChange, placeholder, className }) => {
 export default function NewArticlePage() {
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("Author");
-  const [category, setCategory] = useState("Category");
+  const [category, setCategory] = useState("");
   const [tags, setTags] = useState([]);
   const [currentTag, setCurrentTag] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
@@ -37,6 +37,7 @@ export default function NewArticlePage() {
   const [articleContent, setArticleContent] = useState([{ type: "paragraph", value: "" }]);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [uploadingImages, setUploadingImages] = useState<Set<string>>(new Set());
 
   // Try to fetch profile to set author automatically
   useEffect(() => {
@@ -88,37 +89,102 @@ export default function NewArticlePage() {
   }, []);
 
   // Content helpers
-  const handleContentChange = (index:any, newValue:any) => {
+  const handleContentChange = (index: any, newValue: any) => {
     const updatedContent = [...articleContent];
     updatedContent[index].value = newValue;
     setArticleContent(updatedContent);
   };
 
-  const handleImageCaptionChange = (index, caption) => {
+  const handleImageCaptionChange = (index: any, caption: any) => {
     const updatedContent = [...articleContent];
     updatedContent[index].caption = caption;
     setArticleContent(updatedContent);
   };
 
-  const handleImageFileChange = (index, event) => {
+  // Upload image to Cloudinary first, then update content
+  const handleImageFileChange = async (index: any, event: any) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const oldUrl = articleContent[index].value;
-      if (oldUrl && oldUrl.startsWith("blob:")) {
-        try {
-          URL.revokeObjectURL(oldUrl);
-        } catch {}
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setErrorMsg("Invalid image format. Please use JPEG, PNG, GIF, or WebP.");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMsg("Image size too large. Please use images under 5MB.");
+      return;
+    }
+
+    setUploadingImages(prev => new Set(prev).add(`image-${index}`));
+
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+      if (!token) {
+        setErrorMsg("Please log in to upload images.");
+        return;
       }
-      const newUrl = URL.createObjectURL(file);
+
+      // Create FormData for image upload
+      const formData = new FormData();
+      formData.append("image", file);
+
+      // Upload to Cloudinary endpoint
+      const uploadResponse = await fetch("http://127.0.0.1:8000/api/articles/upload-image/", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const uploadResult = await uploadResponse.json();
+
+      if (!uploadResponse.ok) {
+        throw new Error(uploadResult.message || "Failed to upload image");
+      }
+
+      if (uploadResult.success) {
+        // Update the content block with Cloudinary URL
+        const updatedContent = [...articleContent];
+        updatedContent[index] = {
+          ...updatedContent[index],
+          value: uploadResult.data.url,
+          caption: updatedContent[index].caption || "",
+          public_id: uploadResult.data.public_id, // Store public_id for future reference
+          uploaded: true
+        };
+        setArticleContent(updatedContent);
+      } else {
+        throw new Error(uploadResult.message || "Upload failed");
+      }
+    } catch (error: any) {
+      console.error("Image upload error:", error);
+      setErrorMsg(`Failed to upload image: ${error.message}`);
+      
+      // Clean up the failed upload
       const updatedContent = [...articleContent];
-      updatedContent[index] = { ...updatedContent[index], value: newUrl, file: file };
+      updatedContent[index] = {
+        ...updatedContent[index],
+        value: "",
+        caption: updatedContent[index].caption || ""
+      };
       setArticleContent(updatedContent);
+    } finally {
+      setUploadingImages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(`image-${index}`);
+        return newSet;
+      });
     }
   };
 
   useEffect(() => {
     return () => {
-      // cleanup blob URLs
+      // Cleanup blob URLs if any
       articleContent.forEach((block) => {
         if (block.type === "image" && block.value && block.value.startsWith("blob:")) {
           try {
@@ -130,14 +196,16 @@ export default function NewArticlePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addBlock = (type, index) => {
-    const newBlock = type === "paragraph" ? { type: "paragraph", value: "" } : { type: "image", value: "", caption: "", file: null };
+  const addBlock = (type: any, index: any) => {
+    const newBlock = type === "paragraph" 
+      ? { type: "paragraph", value: "" } 
+      : { type: "image", value: "", caption: "", uploaded: false };
     const updatedContent = [...articleContent];
     updatedContent.splice(index + 1, 0, newBlock);
     setArticleContent(updatedContent);
   };
 
-  const removeBlock = (index) => {
+  const removeBlock = (index: any) => {
     if (articleContent.length > 1) {
       const blockToRemove = articleContent[index];
       if (blockToRemove.type === "image" && blockToRemove.value && blockToRemove.value.startsWith("blob:")) {
@@ -150,7 +218,7 @@ export default function NewArticlePage() {
     }
   };
 
-  const handleAddTag = (e:any) => {
+  const handleAddTag = (e: any) => {
     if (e.key === "Enter" && currentTag.trim() !== "" && !tags.includes(currentTag.trim())) {
       e.preventDefault();
       setTags([...tags, currentTag.trim()]);
@@ -158,7 +226,7 @@ export default function NewArticlePage() {
     }
   };
 
-  const handleRemoveTag = (tagToRemove) => {
+  const handleRemoveTag = (tagToRemove: any) => {
     setTags(tags.filter((tag) => tag !== tagToRemove));
   };
 
@@ -168,6 +236,17 @@ export default function NewArticlePage() {
 
     if (!title.trim()) {
       setErrorMsg("Please provide an article title.");
+      return;
+    }
+
+    if (!category.trim()) {
+      setErrorMsg("Please provide a category.");
+      return;
+    }
+
+    // Check if any images are still uploading
+    if (uploadingImages.size > 0) {
+      setErrorMsg("Please wait for all images to finish uploading.");
       return;
     }
 
@@ -181,29 +260,29 @@ export default function NewArticlePage() {
         return;
       }
 
-      // Build FormData
-      const form = new FormData();
-      form.append("title", title);
-      form.append("author", author);
-      form.append("tags", JSON.stringify(tags));
-
-      // We will send content as JSON but replace image-file values with keys referencing files in FormData
-      const contentToSend = articleContent.map((block, i) => {
+      // Prepare content for backend
+      const contentToSend = articleContent.map((block) => {
         if (block.type === "paragraph") {
           return { type: "paragraph", value: block.value || "" };
         }
         if (block.type === "image") {
-          if (block.file instanceof File) {
-            const fileKey = `file_${i}`;
-            form.append(fileKey, block.file, block.file.name);
-            return { type: "image", value: fileKey, caption: block.caption || "" };
-          }
-          return { type: "image", value: block.value || "", caption: block.caption || "" };
+          return { 
+            type: "image", 
+            value: block.value || "", 
+            caption: block.caption || "" 
+          };
         }
         return null;
-      });
+      }).filter(block => block !== null);
 
-      form.append("content", JSON.stringify(contentToSend));
+      // Create JSON payload for the article
+      const payload = {
+        title: title.trim(),
+        content: contentToSend,
+        category: category.trim(),
+        tags: tags,
+        author: author.trim() || "Anonymous"
+      };
 
       const BASE_API = "http://127.0.0.1:8000/";
       const createUrl = `${BASE_API}api/articles/create/`;
@@ -211,9 +290,10 @@ export default function NewArticlePage() {
       const res = await fetch(createUrl, {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: form,
+        body: JSON.stringify(payload),
       });
 
       const raw = await res.text();
@@ -227,35 +307,108 @@ export default function NewArticlePage() {
       }
 
       if (!res.ok) {
-        // Backend often returns { success: false, message: ... }
         const msg = (json as any)?.message || (json as any)?.detail || `Failed to create article (status ${res.status})`;
         setErrorMsg(msg);
         setSubmitting(false);
         return;
       }
 
-      // Success path — backend may return created article info
+      // Success path
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
 
-      // Clear or reset editor as needed:
+      // Reset form
       setTitle("");
+      setCategory("");
       setTags([]);
       setCurrentTag("");
       setArticleContent([{ type: "paragraph", value: "" }]);
 
-      // revoke blob URLs if any
-      articleContent.forEach((block) => {
-        if (block.type === "image" && block.value && block.value.startsWith("blob:")) {
-          try {
-            URL.revokeObjectURL(block.value);
-          } catch {}
-        }
-      });
-
-    } catch (err) {
+    } catch (err: any) {
       console.error("Publish error:", err);
       setErrorMsg("Network error while publishing. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Save as draft functionality
+  const handleSaveDraft = async () => {
+    setErrorMsg(null);
+
+    if (!title.trim()) {
+      setErrorMsg("Please provide an article title to save as draft.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+      if (!token) {
+        setErrorMsg("Not authenticated — please login.");
+        setSubmitting(false);
+        return;
+      }
+
+      // Prepare content for backend
+      const contentToSend = articleContent.map((block) => {
+        if (block.type === "paragraph") {
+          return { type: "paragraph", value: block.value || "" };
+        }
+        if (block.type === "image") {
+          return { 
+            type: "image", 
+            value: block.value || "", 
+            caption: block.caption || "" 
+          };
+        }
+        return null;
+      }).filter(block => block !== null);
+
+      const payload = {
+        title: title.trim(),
+        content: contentToSend,
+        category: category.trim() || "General",
+        tags: tags,
+        author: author.trim() || "Anonymous",
+        status: "draft",
+        published: false
+      };
+
+      const BASE_API = "http://127.0.0.1:8000/";
+      const createUrl = `${BASE_API}api/articles/create/`;
+
+      const res = await fetch(createUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const raw = await res.text();
+      let json = {};
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        json = {};
+      }
+
+      if (!res.ok) {
+        const msg = (json as any)?.message || (json as any)?.detail || `Failed to save draft (status ${res.status})`;
+        setErrorMsg(msg);
+        setSubmitting(false);
+        return;
+      }
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
+    } catch (err: any) {
+      console.error("Save draft error:", err);
+      setErrorMsg("Network error while saving draft. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -284,6 +437,9 @@ export default function NewArticlePage() {
       {errorMsg && (
         <div className="fixed top-24 right-8 bg-red-500 text-white py-3 px-6 rounded-lg shadow-lg flex items-center gap-3 z-50">
           <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg(null)} className="text-white hover:text-gray-200">
+            <X size={16} />
+          </button>
         </div>
       )}
 
@@ -326,18 +482,43 @@ export default function NewArticlePage() {
                     />
                   ) : (
                     <div className={`p-4 border ${themeClasses.inputBorder} rounded-lg ${themeClasses.inputBg} space-y-3`}>
-                      <label className={`text-xs font-semibold ${themeClasses.textMuted}`}>IMAGE BLOCK</label>
-                      {!block.value && (
+                      <label className={`text-xs font-semibold ${themeClasses.textMuted}`}>
+                        IMAGE BLOCK 
+                        {uploadingImages.has(`image-${index}`) && (
+                          <span className="ml-2 text-orange-500">Uploading...</span>
+                        )}
+                        {block.uploaded && (
+                          <span className="ml-2 text-green-500">✓ Uploaded</span>
+                        )}
+                      </label>
+                      
+                      {!block.value && !uploadingImages.has(`image-${index}`) && (
                         <label htmlFor={`image-upload-${index}`} className={`w-full flex flex-col justify-center items-center gap-2 p-6 border-2 border-dashed ${themeClasses.inputBorder} rounded-lg cursor-pointer transition hover:bg-slate-700/50 hover:border-orange-500`}>
                           <UploadCloud size={24} className={themeClasses.textMuted} />
                           <span className="text-sm font-semibold">Choose a file</span>
+                          <span className="text-xs text-slate-500">JPEG, PNG, GIF, WebP (max 5MB)</span>
                         </label>
                       )}
-                      <input id={`image-upload-${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleImageFileChange(index, e)} />
 
-                      {block.value && (
+                      {uploadingImages.has(`image-${index}`) && (
+                        <div className={`w-full flex flex-col justify-center items-center gap-2 p-6 border-2 border-dashed border-orange-500 rounded-lg`}>
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+                          <span className="text-sm font-semibold">Uploading image...</span>
+                        </div>
+                      )}
+
+                      <input 
+                        id={`image-upload-${index}`} 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={(e) => handleImageFileChange(index, e)}
+                        disabled={uploadingImages.has(`image-${index}`)}
+                      />
+
+                      {block.value && !uploadingImages.has(`image-${index}`) && (
                         <div className="mt-2">
-                          <img src={block.value} alt="Selected preview" className="w-full rounded-md object-cover" />
+                          <img src={block.value} alt="Selected preview" className="w-full max-h-96 rounded-md object-cover" />
                         </div>
                       )}
 
@@ -347,13 +528,35 @@ export default function NewArticlePage() {
                         onChange={(e) => handleImageCaptionChange(index, e.target.value)}
                         placeholder="Optional: Image caption"
                         className={`w-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 ${themeClasses.focusRing} transition`}
+                        disabled={uploadingImages.has(`image-${index}`)}
                       />
                     </div>
                   )}
                   <div className="absolute -right-12 top-1/2 -translate-y-1/2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => addBlock("paragraph", index)} className={`p-2 rounded-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} hover:bg-opacity-80`} title="Add Paragraph Below"><Type size={16} /></button>
-                    <button onClick={() => addBlock("image", index)} className={`p-2 rounded-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} hover:bg-opacity-80`} title="Add Image Below"><ImageIcon size={16} /></button>
-                    <button onClick={() => removeBlock(index)} className={`p-2 rounded-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} text-red-500`} title="Remove Block"><X size={16} /></button>
+                    <button 
+                      onClick={() => addBlock("paragraph", index)} 
+                      className={`p-2 rounded-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} hover:bg-opacity-80`} 
+                      title="Add Paragraph Below"
+                      disabled={uploadingImages.has(`image-${index}`)}
+                    >
+                      <Type size={16} />
+                    </button>
+                    <button 
+                      onClick={() => addBlock("image", index)} 
+                      className={`p-2 rounded-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} hover:bg-opacity-80`} 
+                      title="Add Image Below"
+                      disabled={uploadingImages.has(`image-${index}`)}
+                    >
+                      <ImageIcon size={16} />
+                    </button>
+                    <button 
+                      onClick={() => removeBlock(index)} 
+                      className={`p-2 rounded-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} text-red-500`} 
+                      title="Remove Block"
+                      disabled={uploadingImages.has(`image-${index}`)}
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -371,12 +574,13 @@ export default function NewArticlePage() {
             </div>
 
             <div className="mb-6">
-              <label htmlFor="category" className={`block text-sm font-medium ${themeClasses.textMuted} mb-2`}>category</label>
+              <label htmlFor="category" className={`block text-sm font-medium ${themeClasses.textMuted} mb-2`}>Category</label>
               <input
                 type="text"
                 id="category"
                 value={category}
-                onChange={(e) => cat(e.target.value)}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="e.g., Technology, Science, Business"
                 className={`w-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} rounded-lg px-4 py-3 focus:outline-none focus:ring-2 ${themeClasses.focusRing} transition`}
               />
             </div>
@@ -403,10 +607,19 @@ export default function NewArticlePage() {
             </div>
 
             <div className="flex items-center justify-between">
-              <button className="flex items-center gap-2 px-5 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-colors">
-                <UploadCloud size={18} /><span>Save as Draft</span>
+              <button 
+                onClick={handleSaveDraft} 
+                disabled={submitting || uploadingImages.size > 0}
+                className="flex items-center gap-2 px-5 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <UploadCloud size={18} />
+                <span>{submitting ? "Saving..." : "Save as Draft"}</span>
               </button>
-              <button onClick={handlePublish} disabled={submitting} className="flex items-center gap-2 px-5 py-3 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold transition-colors text-white">
+              <button 
+                onClick={handlePublish} 
+                disabled={submitting || uploadingImages.size > 0}
+                className="flex items-center gap-2 px-5 py-3 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <span>{submitting ? "Publishing..." : "Publish Article"}</span>
               </button>
             </div>
@@ -421,6 +634,8 @@ export default function NewArticlePage() {
             <div className={`flex items-center space-x-4 text-sm ${themeClasses.textMuted} mb-4`}>
               <span>By {author || "Author Name"}</span><span>•</span>
               <span>{new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
+              {category && <span>•</span>}
+              {category && <span className="px-2 py-1 bg-gray-200 dark:bg-slate-700 rounded-full text-xs">{category}</span>}
             </div>
             <div className="flex flex-wrap items-center gap-2 my-4">
               {tags.map((tag) => (
@@ -433,13 +648,10 @@ export default function NewArticlePage() {
                   return <p key={index}>{block.value || (index === 0 ? "Your content will appear here..." : "")}</p>;
                 }
                 if (block.type === "image" && block.value) {
-                  // if value is a file key (file_#), backend will replace it with actual URL. For preview, show blob or direct url
-                  const isFileKey = block.value.startsWith("file_");
-                  const src = isFileKey ? (block.file ? block.value : "") : block.value;
                   return (
                     <figure key={index}>
-                      <img src={block.value} alt={block.caption || "Article image"} className="rounded-lg object-cover" />
-                      {block.caption && <figcaption>{block.caption}</figcaption>}
+                      <img src={block.value} alt={block.caption || "Article image"} className="rounded-lg object-cover w-full" />
+                      {block.caption && <figcaption className="text-center text-sm italic mt-2">{block.caption}</figcaption>}
                     </figure>
                   );
                 }
@@ -460,16 +672,16 @@ if (typeof window !== "undefined") {
     const style = document.createElement("style");
     style.id = styleId;
     style.innerHTML = `
-            @keyframes fade-in-out {
-                0% { opacity: 0; transform: translateY(-20px); }
-                10% { opacity: 1; transform: translateY(0); }
-                90% { opacity: 1; transform: translateY(0); }
-                100% { opacity: 0; transform: translateY(-20px); }
-            }
-            .animate-fade-in-out {
-                animation: fade-in-out 3s ease-in-out forwards;
-            }
-        `;
+      @keyframes fade-in-out {
+        0% { opacity: 0; transform: translateY(-20px); }
+        10% { opacity: 1; transform: translateY(0); }
+        90% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-20px); }
+      }
+      .animate-fade-in-out {
+        animation: fade-in-out 3s ease-in-out forwards;
+      }
+    `;
     document.head.appendChild(style);
   }
 }
