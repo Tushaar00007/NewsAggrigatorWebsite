@@ -99,6 +99,7 @@ export default function LoginPage(): JSX.Element {
       localStorage.setItem("isLoggedIn", "true");
     localStorage.setItem("userid", userObj?.id ?? "");
     localStorage.setItem("userName", userObj?.username ?? "User");
+    localStorage.setItem("savedarticles", JSON.stringify(userObj?.saved_articles ?? []));
       if (emailReturned) localStorage.setItem("userEmail", emailReturned);
 
       // Redirect by role

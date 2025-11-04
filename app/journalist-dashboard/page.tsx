@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, FileText, DollarSign, Eye, MessageSquare, TrendingUp, TrendingDown, Edit, Sun, Moon, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, FileText, DollarSign, Eye, MessageSquare, TrendingUp, TrendingDown, Edit, Sun, Moon, RefreshCw, Trash2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 // Reusable Stat Card Component
@@ -23,8 +24,46 @@ const StatCard = ({ icon: Icon, title, value, change, changeType, themeClasses }
   </div>
 );
 
+// Delete Confirmation Modal Component
+const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, articleTitle, themeClasses, isLoading }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className={`${themeClasses.cardBg} rounded-xl p-6 max-w-md w-full border ${themeClasses.border}`}>
+        <h3 className="text-xl font-bold mb-2">Delete Article</h3>
+        <p className={`mb-6 ${themeClasses.textMuted}`}>
+          Are you sure you want to delete "<span className="font-semibold text-white">{articleTitle}</span>"? This action cannot be undone.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              themeClasses.textMuted
+            } ${
+              themeClasses === "dark" ? "hover:bg-slate-700" : "hover:bg-gray-200"
+            } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isLoading}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isLoading && <RefreshCw size={16} className="animate-spin" />}
+            Delete Article
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Main Dashboard Component
 export default function JournalistDashboardPage() {
+  const router = useRouter();
   const [theme, setTheme] = useState("dark");
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
@@ -32,6 +71,9 @@ export default function JournalistDashboardPage() {
   const [articles, setArticles] = useState([]);
   const [loadingArticles, setLoadingArticles] = useState(false);
   const [articlesError, setArticlesError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [deleteModal, setDeleteModal] = useState({ isOpen: false, articleId: null, articleTitle: "" });
+  
   const [stats, setStats] = useState({
     totalArticles: 0,
     totalViews: 0,
@@ -51,6 +93,45 @@ export default function JournalistDashboardPage() {
     border: theme === "dark" ? "border-slate-700" : "border-gray-200",
   };
 
+  // Function to get token from localStorage - checks multiple possible keys
+  const getAuthToken = () => {
+    // Check all possible keys where token might be stored
+    const possibleKeys = [
+      'token',
+      'authToken',
+      'accessToken',
+      'jwtToken',
+      'userToken',
+      'auth_token',
+      'access_token'
+    ];
+    
+    for (const key of possibleKeys) {
+      const token = localStorage.getItem(key);
+      if (token) {
+        console.log(`Found token in key: ${key}`);
+        return token;
+      }
+    }
+    
+    // Also check if token is stored in user object
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        if (user.token) {
+          console.log('Found token in user object');
+          return user.token;
+        }
+      } catch (e) {
+        console.log('Could not parse user data');
+      }
+    }
+    
+    console.log('No token found in localStorage. Available keys:', Object.keys(localStorage));
+    return null;
+  };
+
   // Step 1: Load user from localStorage (with fallback)
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -61,9 +142,16 @@ export default function JournalistDashboardPage() {
         const userId = localStorage.getItem('userId');
         const userEmail = localStorage.getItem('userEmail');
         const userRole = localStorage.getItem('userRole');
-        const userName = localStorage.getItem('userName'); // Use stored name
+        const userName = localStorage.getItem('userName');
+        const token = getAuthToken();
 
-        console.log('LocalStorage Data:', { userId, userEmail, userRole, userName });
+        console.log('LocalStorage Data:', { 
+          userId, 
+          userEmail, 
+          userRole, 
+          userName,
+          tokenPresent: !!token
+        });
 
         if (userId || userEmail) {
           setUser({
@@ -111,7 +199,7 @@ export default function JournalistDashboardPage() {
           const userEmail = localStorage.getItem('userEmail');
           const userName = localStorage.getItem('userName');
 
-          // Step 3: Filter articles by author (id, email, OR name)
+          // Filter articles by author (id, email, OR name)
           const userArticles = data.data.articles.filter(article => {
             const author = article.author;
             if (!author) {
@@ -132,7 +220,7 @@ export default function JournalistDashboardPage() {
 
           setArticles(userArticles);
 
-          // Step 4: Calculate real stats
+          // Calculate real stats
           const totalArticles = userArticles.length;
           const publishedArticles = userArticles.filter(a => a.published).length;
           const totalLikes = userArticles.reduce((sum, a) => sum + (a.likes_count || 0), 0);
@@ -164,7 +252,94 @@ export default function JournalistDashboardPage() {
     fetchArticlesAndStats();
   }, [user]);
 
-  // Step 5: Generate real monthly earnings data from articles
+  // Delete Article Function - FIXED to use query parameter and better token handling
+  const handleDeleteArticle = async (articleId) => {
+    if (!articleId) return;
+
+    setDeleteLoading(articleId);
+    
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error('No authentication token found. Please check if you are logged in.');
+      }
+
+      console.log('Deleting article with ID:', articleId);
+      console.log('Using token:', token.substring(0, 20) + '...');
+
+      // Use query parameter approach - this matches your backend
+      const response = await fetch(`${API_BASE}/delete/?id=${articleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log('Delete response status:', response.status);
+
+      // Check if response is HTML (error page) instead of JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/html')) {
+        const textResponse = await response.text();
+        console.error('Server returned HTML instead of JSON:', textResponse.substring(0, 200));
+        throw new Error('Server error: Endpoint not found or server configuration issue');
+      }
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || `Server returned ${response.status}: ${response.statusText}`);
+      }
+      
+      if (data.success) {
+        // Remove article from local state
+        setArticles(prev => prev.filter(article => article.id !== articleId));
+        
+        // Update stats
+        const deletedArticle = articles.find(a => a.id === articleId);
+        if (deletedArticle) {
+          setStats(prev => ({
+            ...prev,
+            totalArticles: prev.totalArticles - 1,
+            monthlyEarnings: deletedArticle.published ? prev.monthlyEarnings - 45.50 : prev.monthlyEarnings,
+          }));
+        }
+        
+        console.log('Article deleted successfully');
+      } else {
+        throw new Error(data.message || 'Failed to delete article');
+      }
+    } catch (error) {
+      console.error('Error deleting article:', error);
+      alert(`Failed to delete article: ${error.message}`);
+    } finally {
+      setDeleteLoading(null);
+      setDeleteModal({ isOpen: false, articleId: null, articleTitle: "" });
+    }
+  };
+
+  // Open Delete Confirmation Modal
+  const openDeleteModal = (articleId, articleTitle) => {
+    setDeleteModal({
+      isOpen: true,
+      articleId,
+      articleTitle
+    });
+  };
+
+  // Close Delete Confirmation Modal
+  const closeDeleteModal = () => {
+    if (!deleteLoading) {
+      setDeleteModal({
+        isOpen: false,
+        articleId: null,
+        articleTitle: ""
+      });
+    }
+  };
+
+  // Generate real monthly earnings data from articles
   const generateEarningsData = () => {
     const monthlyMap = {};
 
@@ -185,7 +360,7 @@ export default function JournalistDashboardPage() {
 
   const earningsData = generateEarningsData();
 
-  // Step 6: Prepare stats for display
+  // Prepare stats for display
   const displayStats = [
     { 
       title: "Total Articles", 
@@ -234,12 +409,22 @@ export default function JournalistDashboardPage() {
     });
   };
 
-  const handleEditArticle = (articleId) => {
-    window.location.href = `/edit-article?id=${articleId}`;
-  };
+  // FIXED: Handle Edit Article with router
+  const handleEditArticle = (articleId: string) => {
+  router.push(`/Edit-Articles/${articleId}`);
+};
 
   const handleRefresh = () => {
     window.location.reload();
+  };
+
+  // Function to manually set token (for testing)
+  const handleSetToken = () => {
+    const token = prompt('Enter your authentication token:');
+    if (token) {
+      localStorage.setItem('token', token);
+      alert('Token set successfully! Try deleting again.');
+    }
   };
 
   // Display name & avatar
@@ -342,7 +527,7 @@ export default function JournalistDashboardPage() {
                     <div className="col-span-2 text-center">Status</div>
                     <div className="col-span-2 text-right">Likes</div>
                     <div className="col-span-2 text-right">Date</div>
-                    <div className="col-span-1 text-center"></div>
+                    <div className="col-span-1 text-center">Actions</div>
                   </div>
                   <div className="space-y-2 mt-2">
                     {articles.slice(0, 6).map(article => {
@@ -363,13 +548,25 @@ export default function JournalistDashboardPage() {
                           <div className={`col-span-2 text-right text-sm ${themeClasses.textMuted}`}>
                             {formatDate(article.created_at)}
                           </div>
-                          <div className="col-span-1 text-center">
+                          <div className="col-span-1 text-center flex justify-center space-x-2">
                             <button 
                               onClick={() => handleEditArticle(article.id)}
-                              className={`${themeClasses.textMuted} hover:text-orange-500`}
+                              className={`${themeClasses.textMuted} hover:text-orange-500 transition-colors`}
                               title="Edit article"
                             >
                               <Edit size={16} />
+                            </button>
+                            <button 
+                              onClick={() => openDeleteModal(article.id, article.title)}
+                              disabled={deleteLoading === article.id}
+                              className={`${themeClasses.textMuted} hover:text-red-500 transition-colors disabled:opacity-50`}
+                              title="Delete article"
+                            >
+                              {deleteLoading === article.id ? (
+                                <RefreshCw size={16} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={16} />
+                              )}
                             </button>
                           </div>
                         </div>
@@ -435,23 +632,75 @@ export default function JournalistDashboardPage() {
           </div>
         </div>
 
-        {/* Debug Panel (Remove in production) */}
-        {/* {process.env.NODE_ENV === 'development' && (
-          <div className="mt-8 p-4 bg-yellow-900/30 rounded-lg text-xs font-mono">
-            <p><strong>Debug Info:</strong></p>
-            <p>User ID: {localStorage.getItem('userId') || '—'}</p>
-            <p>Email: {localStorage.getItem('userEmail') || '—'}</p>
-            <p>Name: {localStorage.getItem('userName') || '—'}</p>
-            <p>Articles Loaded: {articles.length}</p>
+        {/* Debug Panel */}
+        <div className="mt-8 p-4 bg-blue-900/30 rounded-lg text-xs font-mono">
+          <p><strong>Debug Info:</strong></p>
+          <p>User ID: {localStorage.getItem('userId') || '—'}</p>
+          <p>Email: {localStorage.getItem('userEmail') || '—'}</p>
+          <p>Name: {localStorage.getItem('userName') || '—'}</p>
+          <p>Token Found: {getAuthToken() ? 'Yes' : 'No'}</p>
+          <p>Articles Loaded: {articles.length}</p>
+          <div className="flex gap-2 mt-2">
             <button 
-              onClick={() => console.log('Articles:', articles)} 
+              onClick={handleSetToken}
               className="underline text-orange-400"
             >
-              Log Articles to Console
+              Set Token Manually
+            </button>
+            <button 
+              onClick={async () => {
+                if (articles.length > 0) {
+                  const testArticleId = articles[0].id;
+                  const testArticleTitle = articles[0].title;
+                  console.log('Testing delete endpoint for article:', testArticleId, testArticleTitle);
+                  
+                  const token = getAuthToken();
+                  if (!token) {
+                    alert('No token found. Please set token first.');
+                    return;
+                  }
+                  
+                  try {
+                    const response = await fetch(`${API_BASE}/delete/?id=${testArticleId}`, {
+                      method: 'DELETE',
+                      headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                      },
+                    });
+                    console.log('Test response status:', response.status, response.statusText);
+                    const data = await response.json();
+                    console.log('Test response data:', data);
+                    alert(`Test result: ${response.status} - ${data.message || 'No message'}`);
+                  } catch (err) {
+                    console.error('Test error:', err);
+                    alert('Test failed: ' + err.message);
+                  }
+                }
+              }}
+              className="underline text-green-400"
+            >
+              Test Delete Endpoint
+            </button>
+            <button 
+              onClick={() => console.log('All localStorage:', Object.keys(localStorage).map(key => `${key}: ${localStorage.getItem(key)}`))} 
+              className="underline text-yellow-400"
+            >
+              Log All LocalStorage
             </button>
           </div>
-        )} */}
+        </div>
       </main>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={closeDeleteModal}
+        onConfirm={() => handleDeleteArticle(deleteModal.articleId)}
+        articleTitle={deleteModal.articleTitle}
+        themeClasses={themeClasses}
+        isLoading={deleteLoading === deleteModal.articleId}
+      />
     </div>
   );
 }
