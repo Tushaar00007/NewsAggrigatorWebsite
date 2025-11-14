@@ -1,16 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, PlusCircle, BarChart3, User, LogOut, Sun, Moon, Menu, X, Eye } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from "react";
+import { LayoutDashboard, PlusCircle, BarChart3, User, LogOut, Sun, Moon, Menu, X, Eye } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const JournalistNavLink = ({ href, icon: Icon, children, theme }) => (
   <a
     href={href}
     className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 group relative ${
-      theme === 'dark'
-        ? 'text-slate-300 hover:text-orange-300 hover:bg-slate-700'
-        : 'text-slate-600 hover:text-orange-500 hover:bg-gray-200'
+      theme === "dark"
+        ? "text-slate-300 hover:text-orange-300 hover:bg-slate-700"
+        : "text-slate-600 hover:text-orange-500 hover:bg-gray-200"
     }`}
     aria-label={children}
   >
@@ -24,7 +24,7 @@ const JournalistNavLink = ({ href, icon: Icon, children, theme }) => (
 
 export default function JournalistHomePage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState("dark");
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,28 +37,28 @@ export default function JournalistHomePage() {
   useEffect(() => {
     const getUserData = () => {
       try {
-        const userId = localStorage.getItem('userId');
-        const userEmail = localStorage.getItem('userEmail');
-        const userRole = localStorage.getItem('userRole');
-        const userName = localStorage.getItem('userName');
+        const userId = localStorage.getItem("userId");
+        const userEmail = localStorage.getItem("userEmail");
+        const userRole = localStorage.getItem("userRole");
+        const userName = localStorage.getItem("userName");
 
         if (userId || userEmail) {
           setUserData({
             id: userId,
             email: userEmail,
             role: userRole,
-            username: userName || userEmail?.split('@')[0] || 'Journalist',
+            username: userName || userEmail?.split("@")[0] || "Journalist",
           });
         }
       } catch (err) {
-        console.error('Error reading localStorage:', err);
+        console.error("Error reading localStorage:", err);
       }
     };
 
     getUserData();
   }, []);
 
-  // Fetch all articles
+  // Fetch all articles and filter for published status
   useEffect(() => {
     const fetchArticles = async () => {
       try {
@@ -68,7 +68,9 @@ export default function JournalistHomePage() {
 
         const data = await response.json();
         if (data.success && Array.isArray(data.data?.articles)) {
-          setArticles(data.data.articles);
+          // Filter for articles with status === "published"
+          const publishedArticles = data.data.articles.filter((article) => article.status === "published");
+          setArticles(publishedArticles);
         } else {
           setArticles([]);
         }
@@ -89,15 +91,15 @@ export default function JournalistHomePage() {
         setIsMenuOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleLogout = () => {
-    ['authToken', 'userId', 'userEmail', 'userRole', 'isLoggedIn', 'userName'].forEach(key =>
+    ["authToken", "userId", "userEmail", "userRole", "isLoggedIn", "userName"].forEach((key) =>
       localStorage.removeItem(key)
     );
-    window.location.href = '/login';
+    window.location.href = "/login";
   };
 
   const handleViewArticle = (articleId) => {
@@ -106,53 +108,61 @@ export default function JournalistHomePage() {
 
   // Theme classes
   const themeClasses = {
-    bg: theme === 'dark' ? 'bg-slate-900' : 'bg-gray-100',
-    text: theme === 'dark' ? 'text-white' : 'text-slate-800',
-    textMuted: theme === 'dark' ? 'text-slate-400' : 'text-slate-500',
-    headerBg: theme === 'dark' ? 'bg-slate-800/90' : 'bg-white/90 shadow-md',
-    cardBg: theme === 'dark' ? 'bg-slate-800' : 'bg-white',
-    border: theme === 'dark' ? 'border-slate-700' : 'border-gray-200',
+    bg: theme === "dark" ? "bg-slate-900" : "bg-gray-50",
+    text: theme === "dark" ? "text-white" : "text-slate-800",
+    textMuted: theme === "dark" ? "text-slate-400" : "text-slate-500",
+    headerBg: theme === "dark" ? "bg-slate-800/90" : "bg-white/90",
+    cardBg: theme === "dark" ? "bg-slate-800" : "bg-white",
+    border: theme === "dark" ? "border-slate-700" : "border-gray-200",
+    focusRing: theme === "dark" ? "focus:ring-orange-500" : "focus:ring-orange-500",
   };
 
-  // Featured article
-  const featuredArticle = articles.find(a => a.published) || articles[0];
+  // Featured article (only from published)
+  const featuredArticle = articles.find((a) => a.status === "published") || articles[0];
 
   // Content preview
   const renderContentPreview = (content) => {
-    if (!content) return 'No content available';
+    if (!content) return "No content available";
     try {
-      const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+      const parsed = typeof content === "string" ? JSON.parse(content) : content;
       if (Array.isArray(parsed)) {
-        const p = parsed.find(b => b.type === 'paragraph');
-        return p?.value ? p.value.substring(0, 100) + '...' : 'No content available';
+        const p = parsed.find((b) => b.type === "paragraph");
+        return p?.value ? p.value.substring(0, 100) + "..." : "No content available";
       }
-      return String(content).substring(0, 100) + '...';
+      return String(content).substring(0, 100) + "...";
     } catch {
-      return String(content).substring(0, 100) + '...';
+      return String(content).substring(0, 100) + "...";
     }
   };
 
   // Article image
   const getArticleImage = (article) => {
     if (article.media?.[0]) return article.media[0];
-    const cat = (article.category || 'general').toLowerCase();
+    const cat = (article.category || "general").toLowerCase();
     const colors = {
-      politics: '0369A1', entertainment: 'EA580C', sports: '16A34A',
-      technology: '7C3AED', health: 'DC2626', business: 'CA8A04', default: '475569'
+      politics: "0369A1",
+      entertainment: "EA580C",
+      sports: "16A34A",
+      technology: "7C3AED",
+      health: "DC2626",
+      business: "CA8A04",
+      default: "475569",
     };
     const color = colors[cat] || colors.default;
-    return `https://placehold.co/600x400/${color}/FFFFFF?text=${encodeURIComponent(article.category || 'Article')}`;
+    return `https://placehold.co/600x400/${color}/FFFFFF?text=${encodeURIComponent(
+      article.category || "Article"
+    )}`;
   };
 
   // Estimate read time
   const estimateReadTime = (content) => {
     const words = content ? String(content).split(/\s+/).length : 0;
     const minutes = Math.ceil(words / 200); // Average reading speed: 200 WPM
-    return minutes > 0 ? `${minutes} min read` : '1 min read';
+    return minutes > 0 ? `${minutes} min read` : "1 min read";
   };
 
-  // Count user's articles
-  const userArticleCount = articles.filter(article => {
+  // Count user's published articles
+  const userArticleCount = articles.filter((article) => {
     const author = article.author;
     if (!author || !userData) return false;
     return (
@@ -167,7 +177,7 @@ export default function JournalistHomePage() {
       <div className={`min-h-screen flex items-center justify-center ${themeClasses.bg}`}>
         <motion.div
           animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           className="rounded-full h-12 w-12 border-t-2 border-orange-500"
         ></motion.div>
         <p className={`mt-4 ${themeClasses.text} font-medium`}>Loading articles...</p>
@@ -179,7 +189,7 @@ export default function JournalistHomePage() {
     <div className={`min-h-screen font-sans transition-colors ${themeClasses.bg} ${themeClasses.text}`}>
       <style jsx global>{`
         body {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
       `}</style>
 
@@ -197,26 +207,34 @@ export default function JournalistHomePage() {
             </a>
 
             <nav className="hidden md:flex items-center space-x-3">
-              <JournalistNavLink href="/journalist-dashboard" icon={LayoutDashboard} theme={theme}>Dashboard</JournalistNavLink>
-              <JournalistNavLink href="/new-article" icon={PlusCircle} theme={theme}>New Article</JournalistNavLink>
-              <JournalistNavLink href="#" icon={BarChart3} theme={theme}>Analytics</JournalistNavLink>
-              <JournalistNavLink href="#" icon={User} theme={theme}>Profile</JournalistNavLink>
+              <JournalistNavLink href="/journalist-dashboard" icon={LayoutDashboard} theme={theme}>
+                Dashboard
+              </JournalistNavLink>
+              <JournalistNavLink href="/new-article" icon={PlusCircle} theme={theme}>
+                New Article
+              </JournalistNavLink>
+              {/* <JournalistNavLink href="#" icon={BarChart3} theme={theme}>
+                Analytics
+              </JournalistNavLink> */}
+              <JournalistNavLink href="#" icon={User} theme={theme}>
+                Profile
+              </JournalistNavLink>
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className={`p-2 rounded-full transition-colors relative group ${
-                  theme === 'dark' ? 'hover:bg-slate-700' : 'hover:bg-gray-200'
+                  theme === "dark" ? "hover:bg-slate-700" : "hover:bg-gray-200"
                 }`}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               >
-                {theme === 'dark' ? <Sun className="text-yellow-400" size={20} /> : <Moon className="text-slate-600" size={20} />}
+                {theme === "dark" ? <Sun className="text-yellow-400" size={20} /> : <Moon className="text-slate-600" size={20} />}
                 <span className="absolute hidden group-hover:block -top-8 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white text-xs rounded px-2 py-1">
-                  {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  {theme === "dark" ? "Light Mode" : "Dark Mode"}
                 </span>
               </motion.button>
               <div className="flex items-center space-x-3">
-                <span className="text-sm font-medium">{userData?.username || 'Journalist'}</span>
+                <span className="text-sm font-medium">{userData?.username || "Journalist"}</span>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -233,15 +251,15 @@ export default function JournalistHomePage() {
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className={`p-2 rounded-full transition-colors relative group ${
-                  theme === 'dark' ? 'hover:bg-slate-700' : 'hover:bg-gray-200'
+                  theme === "dark" ? "hover:bg-slate-700" : "hover:bg-gray-200"
                 }`}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               >
-                {theme === 'dark' ? <Sun className="text-yellow-400" size={24} /> : <Moon className="text-slate-600" size={24} />}
+                {theme === "dark" ? <Sun className="text-yellow-400" size={24} /> : <Moon className="text-slate-600" size={24} />}
                 <span className="absolute hidden group-hover:block -top-8 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white text-xs rounded px-2 py-1">
-                  {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  {theme === "dark" ? "Light Mode" : "Dark Mode"}
                 </span>
               </motion.button>
               <motion.button
@@ -249,7 +267,7 @@ export default function JournalistHomePage() {
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="p-2 rounded-full transition-colors"
-                aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+                aria-label={isMenuOpen ? "Close menu" : "Open menu"}
               >
                 {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
               </motion.button>
@@ -261,19 +279,27 @@ export default function JournalistHomePage() {
           {isMenuOpen && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
+              animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className={`md:hidden border-t ${themeClasses.border} ${theme === 'dark' ? 'bg-slate-800' : 'bg-white'}`}
+              className={`md:hidden border-t ${themeClasses.border} ${theme === "dark" ? "bg-slate-800" : "bg-white"}`}
               ref={menuRef}
             >
               <nav className="container mx-auto px-4 pt-4 pb-6 flex flex-col space-y-4">
-                <JournalistNavLink href="/journalist-dashboard" icon={LayoutDashboard} theme={theme}>Dashboard</JournalistNavLink>
-                <JournalistNavLink href="/new-article" icon={PlusCircle} theme={theme}>New Article</JournalistNavLink>
-                <JournalistNavLink href="#" icon={BarChart3} theme={theme}>Analytics</JournalistNavLink>
-                <JournalistNavLink href="#" icon={User} theme={theme}>Profile</JournalistNavLink>
+                <JournalistNavLink href="/journalist-dashboard" icon={LayoutDashboard} theme={theme}>
+                  Dashboard
+                </JournalistNavLink>
+                <JournalistNavLink href="/new-article" icon={PlusCircle} theme={theme}>
+                  New Article
+                </JournalistNavLink>
+                <JournalistNavLink href="#" icon={BarChart3} theme={theme}>
+                  Analytics
+                </JournalistNavLink>
+                <JournalistNavLink href="#" icon={User} theme={theme}>
+                  Profile
+                </JournalistNavLink>
                 <div className="flex items-center space-x-3">
-                  <span className="text-sm font-medium">{userData?.username || 'Journalist'}</span>
+                  <span className="text-sm font-medium">{userData?.username || "Journalist"}</span>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -300,19 +326,19 @@ export default function JournalistHomePage() {
           className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-12"
         >
           {[
-            { title: 'Total Articles', value: articles.length, color: 'text-orange-500' },
-            { title: 'Published', value: articles.filter(a => a.published).length, color: 'text-green-500' },
-            { title: 'Drafts', value: articles.filter(a => !a.published).length, color: 'text-yellow-500' },
-            { title: 'Your Articles', value: userArticleCount, color: 'text-blue-500' },
+            { title: "Total Articles", value: articles.length, color: "text-orange-500" },
+            { title: "Published", value: articles.length, color: "text-green-500" }, // All shown articles are published
+            { title: "Drafts", value: 0, color: "text-yellow-500" }, // No drafts shown
+            { title: "Your Articles", value: userArticleCount, color: "text-blue-500" },
           ].map((stat, index) => (
             <motion.div
               key={stat.title}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: index * 0.1 }}
-              className={`${themeClasses.cardBg} p-6 rounded-2xl shadow-lg border ${themeClasses.border} hover:shadow-xl transition-shadow`}
+              className={`${themeClasses.cardBg} p-6 rounded-xl shadow-lg border ${themeClasses.border} hover:shadow-xl transition-shadow`}
             >
-              <h3 className="text-lg font-semibold mb-2">{stat.title}</h3>
+              <h3 className={`text-lg font-semibold mb-2 ${themeClasses.textMuted}`}>{stat.title}</h3>
               <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
             </motion.div>
           ))}
@@ -327,14 +353,14 @@ export default function JournalistHomePage() {
             className="mb-12"
           >
             <div
-              className={`${themeClasses.cardBg} rounded-2xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-2 gap-0 relative`}
-              style={{ background: 'linear-gradient(90deg, #f97316, #dc2626)' }}
+              className={`${themeClasses.cardBg} rounded-xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-2 gap-0 relative`}
+              style={{ background: "linear-gradient(90deg, #f97316, #dc2626)" }}
             >
               <div className="p-8 md:p-12 flex flex-col justify-center text-white">
-                <span className="text-sm font-semibold uppercase tracking-wider">{featuredArticle.category || 'Uncategorized'}</span>
+                <span className="text-sm font-semibold uppercase tracking-wider">{featuredArticle.category || "Uncategorized"}</span>
                 <h1 className="text-3xl md:text-4xl font-extrabold my-3 leading-tight line-clamp-2">{featuredArticle.title}</h1>
-                <div className="flex items-center space-x-4 text-sm mb-4">
-                  <span>By {featuredArticle.author?.username || 'Unknown'}</span>
+                <div className={`flex items-center space-x-4 text-sm mb-4 ${themeClasses.textMuted}`}>
+                  <span>By {featuredArticle.author?.username || "Unknown"}</span>
                   <span>•</span>
                   <span>{new Date(featuredArticle.created_at).toLocaleDateString()}</span>
                   <span>•</span>
@@ -342,9 +368,7 @@ export default function JournalistHomePage() {
                 </div>
                 <p className="leading-relaxed mb-6 text-sm">{renderContentPreview(featuredArticle.content)}</p>
                 <div className="flex items-center gap-2 mb-4">
-                  {!featuredArticle.published && (
-                    <span className="px-3 py-1 bg-yellow-600 text-white rounded-full text-xs font-medium">DRAFT</span>
-                  )}
+                  <span className="px-3 py-1 bg-green-600 text-white rounded-full text-xs font-medium">PUBLISHED</span>
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -379,7 +403,7 @@ export default function JournalistHomePage() {
           </div>
 
           {error && (
-            <div className={`p-4 rounded-lg mb-6 ${theme === 'dark' ? 'bg-red-900/50 text-red-200' : 'bg-red-100 text-red-800'}`}>
+            <div className={`p-4 rounded-lg mb-6 ${theme === "dark" ? "bg-red-900/50 text-red-200" : "bg-red-100 text-red-800"}`}>
               Error: {error}
             </div>
           )}
@@ -388,11 +412,11 @@ export default function JournalistHomePage() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className={`text-center py-12 rounded-2xl border-2 border-dashed ${themeClasses.border}`}
+              className={`text-center py-12 rounded-xl border-2 border-dashed ${themeClasses.border}`}
             >
               <Eye size={48} className={`mx-auto mb-4 ${themeClasses.textMuted}`} />
               <h3 className="text-xl font-semibold mb-2">No articles found</h3>
-              <p className={themeClasses.textMuted}>No articles yet.</p>
+              <p className={themeClasses.textMuted}>No published articles yet.</p>
             </motion.div>
           ) : (
             <motion.div
@@ -401,7 +425,7 @@ export default function JournalistHomePage() {
               transition={{ staggerChildren: 0.1 }}
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
             >
-              {articles.map(article => (
+              {articles.map((article) => (
                 <motion.div
                   key={article.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -414,23 +438,24 @@ export default function JournalistHomePage() {
                     <img src={getArticleImage(article)} alt={article.title} className="w-full h-48 object-cover" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
                     <div className="absolute top-3 right-3 flex gap-1">
-                      {!article.published && (
-                        <span className="px-2 py-1 bg-yellow-600 text-white rounded-full text-xs font-medium">DRAFT</span>
-                      )}
-                      {userArticleCount > 0 && article.author?.id != null && String(article.author.id) === String(userData?.id) && (
-                        <span className="px-2 py-1 bg-blue-600 text-white rounded-full text-xs font-medium">YOURS</span>
-                      )}
+                      {userArticleCount > 0 &&
+                        article.author?.id != null &&
+                        String(article.author.id) === String(userData?.id) && (
+                          <span className="px-2 py-1 bg-blue-600 text-white rounded-full text-xs font-medium">YOURS</span>
+                        )}
                     </div>
                   </div>
                   <div className="p-5">
-                    <span className={`text-xs font-bold uppercase tracking-wider ${article.published ? 'text-green-500' : 'text-yellow-500'}`}>
-                      {article.category || 'Uncategorized'}
+                    <span
+                      className={`text-xs font-bold uppercase tracking-wider text-green-500`}
+                    >
+                      {article.category || "Uncategorized"}
                     </span>
                     <h3 className="text-lg font-bold mt-2 mb-2 group-hover:text-orange-400 transition-colors line-clamp-2">
                       {article.title}
                     </h3>
                     <div className={`text-sm ${themeClasses.textMuted} mb-3 flex items-center space-x-2`}>
-                      <span>By {article.author?.username || 'Unknown'}</span>
+                      <span>By {article.author?.username || "Unknown"}</span>
                       <span className="mx-2">•</span>
                       <span>{new Date(article.created_at).toLocaleDateString()}</span>
                       <span className="mx-2">•</span>
@@ -440,8 +465,8 @@ export default function JournalistHomePage() {
                       {renderContentPreview(article.content)}
                     </p>
                     <div className="flex justify-between items-center">
-                      <span className={`text-xs px-2 py-1 rounded-full ${article.published ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        {article.published ? 'Published' : 'Draft'}
+                      <span className={`text-xs px-2 py-1 rounded-full bg-green-100 text-green-800`}>
+                        Published
                       </span>
                       <div className="flex items-center gap-1 text-xs text-gray-500">
                         <Eye size={14} />

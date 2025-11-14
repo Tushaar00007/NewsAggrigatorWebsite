@@ -145,8 +145,12 @@ export default function ArticleDetailPage() {
         if (!res.ok) return;
         const data = await res.json();
         if (data?.success && Array.isArray(data?.data?.comments)) {
-          setComments(data.data.comments);
-          setCommentsCount(data.data.comments_count || data.data.comments.length);
+          // Remove duplicates based on comment ID
+          const uniqueComments = data.data.comments.filter((comment: any, index: number, self: any[]) => 
+            index === self.findIndex((c: any) => c.id === comment.id)
+          );
+          setComments(uniqueComments);
+          setCommentsCount(data.data.comments_count || uniqueComments.length);
         }
       })
       .catch((err) => console.error("Error fetching comments:", err));
@@ -316,14 +320,30 @@ export default function ArticleDetailPage() {
         };
         
         setComments(prev => {
-          const filtered = prev.filter(c => c.id !== optimisticComment.id);
+          // Remove optimistic comment and any existing comment with same ID (in case of update)
+          const filtered = prev.filter(c => 
+            c.id !== optimisticComment.id && 
+            c.id !== serverComment.id
+          );
+          // Add server comment at the beginning, ensuring no duplicates
           return [serverComment, ...filtered];
         });
 
-        // Update comments count from server if provided
-        if (typeof data.data?.comments_count === "number") {
-          setCommentsCount(data.data.comments_count);
-        }
+        // Refresh comments from server to ensure we have the latest state
+        fetch(`${API_BASE}/get-comments/?article_id=${encodeURIComponent(id)}`)
+          .then(async (res) => {
+            if (!res.ok) return;
+            const refreshData = await res.json();
+            if (refreshData?.success && Array.isArray(refreshData?.data?.comments)) {
+              // Remove duplicates based on comment ID
+              const uniqueComments = refreshData.data.comments.filter((comment: any, index: number, self: any[]) => 
+                index === self.findIndex((c: any) => c.id === comment.id)
+              );
+              setComments(uniqueComments);
+              setCommentsCount(refreshData.data.comments_count || uniqueComments.length);
+            }
+          })
+          .catch((err) => console.error("Error refreshing comments:", err));
       }
     } catch (err: any) {
       console.error("Add comment failed:", err);
@@ -468,9 +488,14 @@ export default function ArticleDetailPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {comments.map((comment) => (
+            {comments
+              .filter((comment, index, self) => 
+                // Remove duplicates: keep first occurrence of each unique ID
+                index === self.findIndex((c) => c.id === comment.id)
+              )
+              .map((comment, index) => (
               <div 
-                key={comment.id} 
+                key={`comment-${comment.id}-${index}`}
                 className="border border-gray-200 p-4 rounded-lg bg-white shadow-sm"
               >
                 <div className="flex justify-between items-start mb-2">

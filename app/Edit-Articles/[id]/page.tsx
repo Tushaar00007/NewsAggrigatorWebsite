@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
-import { ArrowLeft, Save, Upload, Trash2, MoveUp, MoveDown, Sun, Moon, Plus, X, UploadCloud, ImageIcon, Type } from "lucide-react";
+import { ArrowLeft, Save, Upload, Trash2, MoveUp, MoveDown, Sun, Moon, Plus, X, UploadCloud, ImageIcon, Type, Bold, Italic, Underline, Palette } from "lucide-react";
 
-// Custom hook for auto-resizing textareas
-const AutoResizeTextarea = ({ value, onChange, placeholder, className }) => {
+// Custom hook for auto-resizing textareas with formatting
+const AutoResizeTextarea = ({ value, onChange, onFormat, placeholder, className, blockIndex }) => {
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -16,15 +16,170 @@ const AutoResizeTextarea = ({ value, onChange, placeholder, className }) => {
     }
   }, [value]);
 
+  // Keyboard shortcut handler
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        switch (e.key) {
+          case "b":
+            e.preventDefault();
+            onFormat("bold");
+            break;
+          case "i":
+            e.preventDefault();
+            onFormat("italic");
+            break;
+          case "u":
+            e.preventDefault();
+            onFormat("underline");
+            break;
+          case "h":
+            e.preventDefault();
+            onFormat("heading");
+            break;
+        }
+      }
+    };
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.addEventListener("keydown", handleKeyDown);
+      return () => textarea.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [onFormat]);
+
+  const handleFormat = (formatType, value = null) => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+    onFormat(formatType, value);
+  };
+
+  const hasSelection = () => {
+    const textarea = textareaRef.current;
+    return textarea && textarea.selectionStart !== textarea.selectionEnd;
+  };
+
   return (
-    <textarea
-      ref={textareaRef}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      className={className}
-      rows={1}
-    />
+    <div className="relative mb-4">
+      {/* Sticky Formatting Toolbar */}
+      <div className="sticky top-0 z-10 flex items-center gap-2 mb-4 p-3 bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 shadow-lg">
+        <button
+          type="button"
+          onClick={() => handleFormat("bold")}
+          className={`p-2 rounded-lg transition-all duration-200 transform hover:scale-105 ${
+            hasSelection()
+              ? "bg-[#f97316] text-white hover:bg-[#ea580c]"
+              : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white"
+          } disabled:opacity-50`}
+          title="Bold (⌘B)"
+          disabled={!hasSelection()}
+          aria-label="Toggle bold formatting"
+        >
+          <Bold size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => handleFormat("italic")}
+          className={`p-2 rounded-lg transition-all duration-200 transform hover:scale-105 ${
+            hasSelection()
+              ? "bg-[#f97316] text-white hover:bg-[#ea580c]"
+              : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white"
+          } disabled:opacity-50`}
+          title="Italic (⌘I)"
+          disabled={!hasSelection()}
+          aria-label="Toggle italic formatting"
+        >
+          <Italic size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => handleFormat("underline")}
+          className={`p-2 rounded-lg transition-all duration-200 transform hover:scale-105 ${
+            hasSelection()
+              ? "bg-[#f97316] text-white hover:bg-[#ea580c]"
+              : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white"
+          } disabled:opacity-50`}
+          title="Underline (⌘U)"
+          disabled={!hasSelection()}
+          aria-label="Toggle underline formatting"
+        >
+          <Underline size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => handleFormat("heading")}
+          className={`p-2 rounded-lg transition-all duration-200 transform hover:scale-105 ${
+            hasSelection()
+              ? "bg-[#f97316] text-white hover:bg-[#ea580c]"
+              : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white"
+          } disabled:opacity-50`}
+          title="Heading (⌘H)"
+          disabled={!hasSelection()}
+          aria-label="Toggle heading formatting"
+        >
+          <Type size={16} />
+        </button>
+        <div className="w-px h-6 bg-slate-600 mx-2"></div>
+        <div className="relative group">
+          <button
+            type="button"
+            className={`p-2 rounded-lg transition-all duration-200 transform hover:scale-105 ${
+              hasSelection()
+                ? "bg-slate-700 text-white hover:bg-slate-600"
+                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+            } disabled:opacity-50`}
+            title="Text Color"
+            disabled={!hasSelection()}
+            aria-label="Select text color"
+          >
+            <Palette size={16} />
+          </button>
+          <div className="absolute left-0 top-full mt-2 bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-xl z-20 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 grid grid-cols-5 gap-3 min-w-[200px]">
+            {[
+              { color: "#ffffff", name: "White" },
+              { color: "#ef4444", name: "Red" },
+              { color: "#f59e0b", name: "Amber" },
+              { color: "#10b981", name: "Green" },
+              { color: "#3b82f6", name: "Blue" },
+              { color: "#8b5cf6", name: "Purple" },
+              { color: "#ec4899", name: "Pink" },
+              { color: "#000000", name: "Black" },
+              { color: "#94a3b8", name: "Gray" },
+              { color: "#f97316", name: "Orange" },
+            ].map(({ color, name }) => (
+              <button
+                key={color}
+                type="button"
+                className="w-7 h-7 rounded-full border border-slate-600 hover:scale-110 transition-transform relative group/color"
+                style={{ backgroundColor: color }}
+                onClick={() => handleFormat("color", color)}
+                title={name}
+                aria-label={`Select ${name} color`}
+              >
+                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover/color:opacity-100 transition-opacity whitespace-nowrap">
+                  {name}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="ml-auto text-xs text-slate-500">⌘B, ⌘I, ⌘U, ⌘H</div>
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className={`${className} rounded-xl shadow-md transition-all duration-200 hover:shadow-lg focus:shadow-xl`}
+        rows={1}
+        onSelect={() => {
+          setTimeout(() => {
+            const event = new Event("input", { bubbles: true });
+            textareaRef.current?.dispatchEvent(event);
+          }, 0);
+        }}
+      />
+    </div>
   );
 };
 
@@ -175,6 +330,73 @@ export default function EditArticlePage() {
     setContent(newContent);
   };
 
+  const wrapSelection = (prefix, suffix = prefix) => {
+    const textarea = document.activeElement;
+    if (!textarea || textarea.tagName !== "TEXTAREA") return null;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = textarea.value.substring(start, end);
+
+    if (selectedText.length === 0) {
+      const newText = textarea.value.substring(0, start) + prefix + suffix + textarea.value.substring(end);
+      return {
+        newText,
+        newSelectionStart: start + prefix.length,
+        newSelectionEnd: start + prefix.length,
+      };
+    }
+
+    const newText = textarea.value.substring(0, start) + prefix + selectedText + suffix + textarea.value.substring(end);
+    return {
+      newText,
+      newSelectionStart: start + prefix.length,
+      newSelectionEnd: end + prefix.length,
+    };
+  };
+
+  const applyFormatting = (formatType, value = null) => {
+    let formatResult = null;
+    switch (formatType) {
+      case "bold":
+        formatResult = wrapSelection("**", "**");
+        break;
+      case "italic":
+        formatResult = wrapSelection("*", "*");
+        break;
+      case "underline":
+        formatResult = wrapSelection("<u>", "</u>");
+        break;
+      case "color":
+        if (value) {
+          formatResult = wrapSelection(`<span style="color: ${value}">`, "</span>");
+        }
+        break;
+      case "heading":
+        formatResult = wrapSelection("# ", "\n");
+        break;
+      default:
+        return;
+    }
+    return formatResult;
+  };
+
+  const handleFormat = (index: number, formatType: string, value: string | null = null) => {
+    const formatResult = applyFormatting(formatType, value);
+    if (formatResult) {
+      const updatedContent = [...content];
+      updatedContent[index].value = formatResult.newText;
+      setContent(updatedContent);
+      setTimeout(() => {
+        const textareas = document.querySelectorAll("textarea");
+        if (textareas[index]) {
+          const textarea = textareas[index];
+          textarea.focus();
+          textarea.setSelectionRange(formatResult.newSelectionStart, formatResult.newSelectionEnd);
+        }
+      }, 0);
+    }
+  };
+
   const handleAddParagraph = (): void => {
     setContent([...content, { type: "paragraph", value: "" }]);
   };
@@ -271,6 +493,18 @@ export default function EditArticlePage() {
     previewBorder: theme === "dark" ? "border-slate-800" : "border-gray-200",
   };
 
+  // Markdown to HTML conversion for preview
+  const renderHTMLContent = (content) => {
+    let html = content
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/<u>(.*?)<\/u>/g, "<u>$1</u>")
+      .replace(/<span style="color: (.*?)">(.*?)<\/span>/g, '<span style="color: $1">$2</span>')
+      .replace(/^# (.*?)$/gm, "<h1>$1</h1>")
+      .replace(/\n/g, "<br>");
+    return { __html: html };
+  };
+
   return (
     <>
       {error && (
@@ -321,6 +555,8 @@ export default function EditArticlePage() {
                     <AutoResizeTextarea
                       value={block.value}
                       onChange={(e) => handleContentChange(index, "value", e.target.value)}
+                      onFormat={(formatType, value) => handleFormat(index, formatType, value)}
+                      blockIndex={index}
                       placeholder="Start writing a paragraph..."
                       className={`w-full ${themeClasses.inputBg} border ${themeClasses.inputBorder} rounded-lg p-4 focus:outline-none focus:ring-2 ${themeClasses.focusRing} transition resize-none overflow-hidden min-h-[100px]`}
                     />
@@ -470,7 +706,12 @@ export default function EditArticlePage() {
             <div className="whitespace-pre-wrap">
               {content.map((block, index) => {
                 if (block.type === "paragraph") {
-                  return <p key={index}>{block.value || (index === 0 ? "Your content will appear here..." : "")}</p>;
+                  return (
+                    <div
+                      key={index}
+                      dangerouslySetInnerHTML={renderHTMLContent(block.value || (index === 0 ? "Your content will appear here..." : ""))}
+                    />
+                  );
                 }
                 if (block.type === "image" && block.value) {
                   return (

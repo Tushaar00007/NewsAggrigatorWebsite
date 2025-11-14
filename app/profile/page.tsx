@@ -13,6 +13,14 @@ import {
   FileText,
   Users,
   Bookmark,
+  Heart,
+  MessageCircle,
+  Share2,
+  Settings,
+  User,
+  Mail,
+  Award,
+  Image as ImageIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -94,7 +102,8 @@ export default function Profile() {
       try {
         console.log('Loading user data from localStorage...');
         
-        const userId = localStorage.getItem("userId");
+        // Check both 'userid' (lowercase - used by login) and 'userId' (camelCase - fallback)
+        const userId = localStorage.getItem("userid") || localStorage.getItem("userId");
         const userEmail = localStorage.getItem("userEmail");
         const userRole = localStorage.getItem("userRole");
         const userName = localStorage.getItem("userName");
@@ -131,8 +140,10 @@ export default function Profile() {
     const userData = loadUserData();
     
     // If we have user data, fetch articles
-    if (userData) {
+    if (userData && userData.id) {
       fetchUserArticles(userData);
+    } else {
+      setLoading(false);
     }
   }, []);
 
@@ -162,35 +173,53 @@ export default function Profile() {
         throw new Error('No authentication token found. Please log in again.');
       }
 
-      // Fetch user's created articles
-      console.log('Fetching user articles...');
-      const articlesResponse = await fetch(
-        `http://localhost:8000/api/articles/get-by-author/?author=${userData.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
+      if (!userData?.id) {
+        console.warn('User ID not found in userData:', userData);
+        setError('User ID not found. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
+      // Fetch user's created articles (only if user is journalist)
+      if (userData.role === 'journalist') {
+        console.log('Fetching user articles...');
+        try {
+          const articlesResponse = await fetch(
+            `http://localhost:8000/api/articles/get-by-author/?author=${userData.id}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+
+          console.log('Articles response status:', articlesResponse.status);
+
+          if (articlesResponse.ok) {
+            const articlesData = await articlesResponse.json();
+            console.log('Articles data:', articlesData);
+            
+            if (articlesData.success) {
+              setUserArticles(articlesData.data?.articles || []);
+              console.log('User articles set:', articlesData.data?.articles?.length || 0);
+            }
+          } else {
+            const errorText = await articlesResponse.text();
+            console.warn('Failed to fetch user articles:', articlesResponse.status, errorText);
+            // Don't throw error, just set empty array
+            setUserArticles([]);
           }
+        } catch (err: any) {
+          console.warn('Error fetching user articles:', err);
+          setUserArticles([]);
         }
-      );
-
-      console.log('Articles response status:', articlesResponse.status);
-
-      if (!articlesResponse.ok) {
-        throw new Error(`Failed to fetch articles: ${articlesResponse.status} ${articlesResponse.statusText}`);
-      }
-
-      const articlesData = await articlesResponse.json();
-      console.log('Articles data:', articlesData);
-      
-      if (articlesData.success) {
-        setUserArticles(articlesData.data?.articles || []);
-        console.log('User articles set:', articlesData.data?.articles?.length || 0);
       } else {
-        throw new Error(articlesData.message || 'Failed to load articles');
+        // For readers, set empty array
+        setUserArticles([]);
       }
 
-      // Fetch saved articles
+      // Fetch saved articles for all users
       console.log('Fetching saved articles...');
       await fetchSavedArticles(userData, token);
 
@@ -206,8 +235,14 @@ export default function Profile() {
   // Fetch saved articles
   const fetchSavedArticles = async (userData: any, token: string) => {
     try {
-      const allArticlesResponse = await fetch(
-        'http://localhost:8000/api/articles/get/',
+      if (!userData?.id) {
+        console.log('No user ID, skipping saved articles fetch');
+        return;
+      }
+
+      console.log('Fetching saved articles for user:', userData.id);
+      const response = await fetch(
+        `http://localhost:8000/api/articles/get-saved-articles/?user_id=${userData.id}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -216,53 +251,30 @@ export default function Profile() {
         }
       );
 
-      if (!allArticlesResponse.ok) {
-        console.log('Failed to fetch all articles, continuing without saved articles');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn('Failed to fetch saved articles:', response.status, errorText);
+        setSavedArticles([]);
         return;
       }
 
-      const allArticlesData = await allArticlesResponse.json();
+      const data = await response.json();
       
-      if (allArticlesData.success) {
-        const articles = allArticlesData.data?.articles || [];
-        console.log('Total articles available:', articles.length);
-        
-        // For each article, check if the current user has saved it
-        const savedArticlesPromises = articles.map(async (article: Article) => {
-          try {
-            const interactionResponse = await fetch(
-              `http://localhost:8000/api/articles/user-interaction/?article_id=${article.id}&user_id=${userData.id}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-                }
-              }
-            );
-
-            if (interactionResponse.ok) {
-              const interactionData = await interactionResponse.json();
-              if (interactionData.success && interactionData.data.saved) {
-                return {
-                  article,
-                  saved_at: article.created_at
-                };
-              }
-            }
-          } catch (err) {
-            console.error('Error checking interaction for article:', article.id, err);
-          }
-          return null;
-        });
-
-        const savedArticlesResults = await Promise.all(savedArticlesPromises);
-        const userSavedArticles = savedArticlesResults.filter(Boolean) as SavedArticle[];
-        console.log('Saved articles found:', userSavedArticles.length);
-        setSavedArticles(userSavedArticles);
+      if (data.success && data.data?.saved_articles) {
+        const savedArticlesList = data.data.saved_articles.map((item: any) => ({
+          article: item.article,
+          saved_at: item.saved_at || item.article?.created_at
+        }));
+        console.log('Saved articles found:', savedArticlesList.length);
+        setSavedArticles(savedArticlesList);
+      } else {
+        console.log('No saved articles found');
+        setSavedArticles([]);
       }
     } catch (err) {
       console.error('Error fetching saved articles:', err);
       // Don't set error here, as we can continue without saved articles
+      setSavedArticles([]);
     }
   };
 
@@ -409,14 +421,21 @@ export default function Profile() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-slate-900 flex items-center justify-center">
-        <div className="text-xl">Loading profile...</div>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"
+          />
+          <p className="text-xl font-medium text-gray-600 dark:text-slate-300">Loading profile...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen font-sans transition-all duration-500 bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-100">
+    <div className="min-h-screen font-sans transition-all duration-500 bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 text-gray-900 dark:text-slate-100">
       <style jsx global>{`
         @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap");
         body {
@@ -429,12 +448,12 @@ export default function Profile() {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.4 }}
-        className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 sticky top-0 z-50 shadow-sm"
+        className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border-b border-gray-200/50 dark:border-slate-700/50 sticky top-0 z-50 shadow-sm"
       >
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <motion.a
-              href="/journalist-dashboard"
+              href={userData?.role === 'admin' ? '/admin' : userData?.role === 'journalist' ? '/journalist-dashboard' : '/'}
               className="text-2xl font-bold flex items-center space-x-2"
               whileHover={{ scale: 1.02 }}
             >
@@ -447,7 +466,7 @@ export default function Profile() {
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={toggleTheme}
-                className="p-3 rounded-2xl bg-orange-100 text-orange-500 hover:bg-orange-200 transition-all duration-300 border border-orange-200 shadow-sm"
+                className="p-3 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 dark:from-slate-700 dark:to-slate-600 text-orange-500 dark:text-orange-400 hover:from-orange-200 hover:to-orange-100 transition-all duration-300 border border-orange-200/50 dark:border-slate-600 shadow-sm"
                 aria-label="Toggle theme"
               >
                 {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
@@ -457,11 +476,11 @@ export default function Profile() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleLogout}
-                className="flex items-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg transition-all duration-300"
+                className="flex items-center space-x-2 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg transition-all duration-300"
                 aria-label="Logout"
               >
                 <LogOut size={18} />
-                <span>Logout</span>
+                <span className="hidden sm:inline">Logout</span>
               </motion.button>
             </div>
           </div>
@@ -491,12 +510,7 @@ export default function Profile() {
         )}
 
         {/* Debug Info */}
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
-          <strong>Debug Info:</strong> User ID: {userData?.id || 'Not found'}, 
-          Email: {userData?.email || 'Not found'}, 
-          Articles: {userArticles.length}, 
-          Saved: {savedArticles.length}
-        </div>
+       
 
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -504,90 +518,148 @@ export default function Profile() {
           transition={{ duration: 0.6 }}
           className="bg-white dark:bg-slate-800 max-w-6xl mx-auto rounded-2xl border border-gray-200 dark:border-slate-700 shadow-lg overflow-hidden"
         >
-          {/* Profile header */}
-          <div className="px-8 py-8">
-            <div className="flex flex-col lg:flex-row items-center lg:items-start justify-between space-y-6 lg:space-y-0 lg:space-x-8">
-              <div className="flex flex-col lg:flex-row items-center lg:items-start space-y-4 lg:space-y-0 lg:space-x-8">
-                <div className="w-24 h-24 rounded-2xl bg-orange-500 flex items-center justify-center text-2xl font-bold text-white shadow-lg">
-                  {(userData?.username || "U").charAt(0).toUpperCase()}
-                </div>
+          {/* Profile header with gradient background */}
+          <div className="relative px-8 py-12 bg-gradient-to-br from-orange-500 via-orange-600 to-orange-700 dark:from-slate-800 dark:via-slate-700 dark:to-slate-800 overflow-hidden">
+            {/* Decorative background elements */}
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-white rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2"></div>
+            </div>
+            
+            <div className="relative flex flex-col lg:flex-row items-center lg:items-start justify-between space-y-6 lg:space-y-0 lg:space-x-8">
+              <div className="flex flex-col lg:flex-row items-center lg:items-start space-y-4 lg:space-y-0 lg:space-x-6">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.5, type: "spring" }}
+                  className="relative"
+                >
+                  <div className="w-32 h-32 rounded-3xl bg-white/20 backdrop-blur-md flex items-center justify-center text-4xl font-bold text-white shadow-2xl border-4 border-white/30">
+                    {(userData?.username || "U").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-green-500 rounded-full border-4 border-white dark:border-slate-800 shadow-lg"></div>
+                </motion.div>
 
                 <div className="text-center lg:text-left">
-                  <h1 className="text-3xl font-bold mb-1">
-                    @{userData?.username || "User"}
-                  </h1>
-                  <p className="text-lg text-gray-600 dark:text-slate-300 mb-2 font-medium">
-                    {userData?.role || "Journalist"}
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-slate-400 flex items-center justify-center lg:justify-start space-x-1">
+                  <motion.h1
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="text-4xl font-bold mb-2 text-white"
+                  >
+                    {userData?.username || "User"}
+                  </motion.h1>
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="flex items-center justify-center lg:justify-start space-x-3 mb-3"
+                  >
+                    <span className="px-3 py-1 bg-white/20 backdrop-blur-sm text-white rounded-full text-sm font-medium border border-white/30">
+                      {userData?.role ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1) : "Journalist"}
+                    </span>
+                    {userData?.email && (
+                      <span className="text-white/80 text-sm flex items-center space-x-1">
+                        <Mail size={14} />
+                        <span>{userData.email}</span>
+                      </span>
+                    )}
+                  </motion.div>
+                  <motion.p
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.4 }}
+                    className="text-sm text-white/80 flex items-center justify-center lg:justify-start space-x-1"
+                  >
                     <Calendar size={14} />
-                    <span>{formatDate(userData?.joinedAt)}</span>
-                  </p>
+                    <span>Joined {formatDate(userData?.joinedAt || undefined)}</span>
+                  </motion.p>
                 </div>
               </div>
 
               <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.5 }}
                 whileHover={{ scale: 1.05, y: -2 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsEditing(true)}
-                className="flex items-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-xl font-medium shadow-lg transition-all duration-300"
+                className="flex items-center space-x-2 bg-white hover:bg-gray-50 text-orange-600 dark:text-orange-500 px-6 py-3 rounded-xl font-medium shadow-xl transition-all duration-300 border border-white/20"
               >
-                <Pen size={18} />
+                <Settings size={18} />
                 <span>Edit Profile</span>
               </motion.button>
             </div>
           </div>
 
           {/* Stats */}
-          <div className="px-8 pb-8 grid grid-cols-2 md:grid-cols-6 gap-4">
-            {[
-              { icon: FileText, label: "Total Articles", value: stats.totalArticles },
-              { icon: Eye, label: "Published", value: stats.published },
-              { icon: Pen, label: "Drafts", value: stats.drafts },
-              { icon: Bookmark, label: "Saved", value: stats.savedArticles },
-              { icon: TrendingUp, label: "Total Views", value: formatNumber(stats.totalViews) },
-              { icon: Users, label: "Followers", value: stats.followers },
-            ].map((stat, index) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.1 * index }}
-                className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 text-center hover:shadow-md"
-              >
-                <div className="text-2xl font-bold text-orange-500 mb-1">{stat.value}</div>
-                <div className="text-xs text-gray-600 dark:text-slate-300 font-medium">
-                  {stat.label}
-                </div>
-              </motion.div>
-            ))}
+          <div className="px-8 pb-8 -mt-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {[
+                { icon: FileText, label: "Total Articles", value: stats.totalArticles, color: "from-blue-500 to-blue-600", bgColor: "bg-blue-50 dark:bg-blue-900/20" },
+                { icon: Eye, label: "Published", value: stats.published, color: "from-green-500 to-green-600", bgColor: "bg-green-50 dark:bg-green-900/20" },
+                { icon: Pen, label: "Drafts", value: stats.drafts, color: "from-yellow-500 to-yellow-600", bgColor: "bg-yellow-50 dark:bg-yellow-900/20" },
+                { icon: Bookmark, label: "Saved", value: stats.savedArticles, color: "from-purple-500 to-purple-600", bgColor: "bg-purple-50 dark:bg-purple-900/20" },
+                { icon: TrendingUp, label: "Views", value: formatNumber(stats.totalViews), color: "from-pink-500 to-pink-600", bgColor: "bg-pink-50 dark:bg-pink-900/20" },
+                { icon: Users, label: "Followers", value: formatNumber(stats.followers), color: "from-indigo-500 to-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-900/20" },
+              ].map((stat, index) => (
+                <motion.div
+                  key={stat.label}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 * index, type: "spring" }}
+                  whileHover={{ y: -5, scale: 1.02 }}
+                  className={`${stat.bgColor} p-5 rounded-2xl border border-gray-200/50 dark:border-slate-700/50 text-center shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer group`}
+                >
+                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} mb-3 shadow-md group-hover:scale-110 transition-transform`}>
+                    <stat.icon size={24} className="text-white" />
+                  </div>
+                  <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{stat.value}</div>
+                  <div className="text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide">
+                    {stat.label}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
           </div>
 
           {/* Tabs */}
-          <div className="border-t border-gray-200 dark:border-slate-700">
-            <div className="px-8 flex space-x-8">
+          <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/50">
+            <div className="px-8 flex space-x-1 overflow-x-auto">
               {[
-                { key: "articles", label: "My Articles" },
-                { key: "saved", label: "Saved Articles" },
-                { key: "drafts", label: "Drafts" }
+                { key: "articles", label: "My Articles", icon: FileText, count: userArticles.length },
+                { key: "saved", label: "Saved", icon: Bookmark, count: savedArticles.length },
+                { key: "drafts", label: "Drafts", icon: Pen, count: userArticles.filter(a => !a.published).length }
               ].map((tab) => (
-                <button
+                <motion.button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key as any)}
-                  className={`py-4 px-1 font-medium relative ${
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className={`relative py-4 px-6 font-medium transition-all duration-300 flex items-center space-x-2 ${
                     activeTab === tab.key
-                      ? "text-gray-900 dark:text-slate-100 font-semibold"
-                      : "text-gray-500 dark:text-slate-400 hover:text-gray-700"
+                      ? "text-orange-600 dark:text-orange-400 font-semibold"
+                      : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
                   }`}
                 >
-                  {tab.label}
+                  <tab.icon size={18} />
+                  <span>{tab.label}</span>
+                  {tab.count > 0 && (
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      activeTab === tab.key
+                        ? "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"
+                        : "bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300"
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
                   {activeTab === tab.key && (
                     <motion.div
                       layoutId="activeTab"
-                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500"
+                      className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-orange-600 rounded-t-full"
                     />
                   )}
-                </button>
+                </motion.button>
               ))}
             </div>
 
@@ -610,106 +682,187 @@ export default function Profile() {
                   {(activeTab === "articles" ? userArticles : 
                     activeTab === "saved" ? savedArticles.map(sa => sa.article) : 
                     userArticles.filter(a => !a.published))
-                    .map((article, index) => (
-                      <motion.div
-                        key={article.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.3, delay: index * 0.05 }}
-                        className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-gray-200 dark:border-slate-700 hover:shadow-md cursor-pointer group"
-                      >
-                        <div className="flex items-start justify-between mb-4">
-                          <div 
-                            className="flex-1"
-                            onClick={() => (window.location.href = `/article/${article.id}`)}
-                          >
-                            <h3 className="text-lg font-semibold mb-2 group-hover:text-orange-500 transition-colors">
-                              {article.title}
-                            </h3>
-                            <div className="flex items-center space-x-6 text-sm text-gray-500 dark:text-slate-400">
-                              <span className="flex items-center space-x-1">
-                                <Calendar size={14} />
-                                <span>{formatDate(article.created_at)}</span>
-                              </span>
-                              <span className="flex items-center space-x-1">
-                                <Clock size={14} />
-                                <span>{estimateReadTime(article.content)} min read</span>
-                              </span>
-                              {article.published && (
-                                <span className="flex items-center space-x-1">
-                                  <Eye size={14} />
-                                  <span>{formatNumber(article.likes_count || 0)} likes</span>
-                                </span>
-                              )}
-                              {article.category && (
-                                <span className="px-2 py-1 bg-blue-500/20 text-blue-600 rounded-full text-xs">
-                                  {article.category}
-                                </span>
+                    .map((article, index) => {
+                      const articleImage = article.media && article.media.length > 0 ? article.media[0] : null;
+                      return (
+                        <motion.div
+                          key={article.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -20 }}
+                          transition={{ duration: 0.3, delay: index * 0.05 }}
+                          whileHover={{ y: -4, scale: 1.01 }}
+                          className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 hover:shadow-xl cursor-pointer group overflow-hidden transition-all duration-300"
+                        >
+                          <div className="flex flex-col md:flex-row">
+                            {/* Article Image */}
+                            {articleImage ? (
+                              <div 
+                                className="md:w-64 h-48 md:h-auto bg-gray-200 dark:bg-slate-700 relative overflow-hidden"
+                                onClick={() => (window.location.href = `/article/${article.id}`)}
+                              >
+                                <img 
+                                  src={articleImage} 
+                                  alt={article.title}
+                                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+                              </div>
+                            ) : (
+                              <div 
+                                className="md:w-64 h-48 md:h-auto bg-gradient-to-br from-orange-100 to-orange-200 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center"
+                                onClick={() => (window.location.href = `/article/${article.id}`)}
+                              >
+                                <ImageIcon size={48} className="text-orange-400 dark:text-slate-400" />
+                              </div>
+                            )}
+                            
+                            {/* Article Content */}
+                            <div 
+                              className="flex-1 p-6"
+                              onClick={() => (window.location.href = `/article/${article.id}`)}
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <h3 className="text-xl font-bold mb-2 group-hover:text-orange-500 transition-colors line-clamp-2">
+                                    {article.title}
+                                  </h3>
+                                  <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 dark:text-slate-400 mb-3">
+                                    <span className="flex items-center space-x-1">
+                                      <Calendar size={14} />
+                                      <span>{formatDate(article.created_at)}</span>
+                                    </span>
+                                    <span className="flex items-center space-x-1">
+                                      <Clock size={14} />
+                                      <span>{estimateReadTime(article.content)} min read</span>
+                                    </span>
+                                    {article.published && (
+                                      <>
+                                        <span className="flex items-center space-x-1">
+                                          <Heart size={14} className="text-red-500" />
+                                          <span>{formatNumber(article.likes_count || 0)}</span>
+                                        </span>
+                                        <span className="flex items-center space-x-1">
+                                          <MessageCircle size={14} className="text-blue-500" />
+                                          <span>{formatNumber(article.comments_count || 0)}</span>
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  {article.category && (
+                                    <span className="inline-block px-3 py-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full text-xs font-semibold mb-3 shadow-sm">
+                                      {article.category}
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                <div className="flex flex-col items-end space-y-2 ml-4">
+                                  {article.published ? (
+                                    <span className="px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-full text-xs font-semibold border border-green-400/30 shadow-sm">
+                                      Published
+                                    </span>
+                                  ) : (
+                                    <span className="px-3 py-1 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white rounded-full text-xs font-semibold border border-yellow-400/30 shadow-sm">
+                                      Draft
+                                    </span>
+                                  )}
+                                  
+                                  {activeTab === "saved" && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUnsaveArticle(article.id);
+                                      }}
+                                      className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                      title="Unsave article"
+                                    >
+                                      <Bookmark size={18} className="fill-current" />
+                                    </motion.button>
+                                  )}
+                                  
+                                  {activeTab === "articles" && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.1 }}
+                                      whileTap={{ scale: 0.9 }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.location.href = `/Edit-Articles/${article.id}`;
+                                      }}
+                                      className="p-2 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                                      title="Edit article"
+                                    >
+                                      <Pen size={18} />
+                                    </motion.button>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Article Preview */}
+                              {article.content && Array.isArray(article.content) && article.content.length > 0 && (
+                                <p className="text-gray-600 dark:text-slate-300 text-sm line-clamp-2">
+                                  {article.content.find((block: any) => block.type === 'paragraph')?.value || 'No preview available'}
+                                </p>
                               )}
                             </div>
                           </div>
-                          
-                          <div className="flex items-center space-x-2">
-                            {article.published ? (
-                              <span className="px-3 py-1 bg-green-500/20 text-green-600 rounded-full text-xs font-medium border border-green-500/30">
-                                Published
-                              </span>
-                            ) : (
-                              <span className="px-3 py-1 bg-yellow-500/20 text-yellow-600 rounded-full text-xs font-medium border border-yellow-500/30">
-                                Draft
-                              </span>
-                            )}
-                            
-                            {activeTab === "saved" && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUnsaveArticle(article.id);
-                                }}
-                                className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                title="Unsave article"
-                              >
-                                <Bookmark size={16} className="fill-current" />
-                              </button>
-                            )}
-                            
-                            {activeTab === "articles" && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.location.href = `/Edit-Articles/${article.id}`;
-                                }}
-                                className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                title="Edit article"
-                              >
-                                <Pen size={16} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                        </motion.div>
+                      );
+                    })}
                 </AnimatePresence>
               </div>
 
               {(activeTab === "articles" ? userArticles.length === 0 :
                activeTab === "saved" ? savedArticles.length === 0 :
                userArticles.filter(a => !a.published).length === 0) && (
-                <div className="text-center py-12">
-                  <FileText size={48} className="mx-auto mb-4 text-gray-400 dark:text-slate-500" />
-                  <p className="text-lg text-gray-500 dark:text-slate-400">
-                    No {activeTab === "saved" ? "saved" : activeTab} articles found.
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="text-center py-16"
+                >
+                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-slate-700 dark:to-slate-600 mb-6">
+                    {activeTab === "saved" ? (
+                      <Bookmark size={48} className="text-gray-400 dark:text-slate-400" />
+                    ) : activeTab === "drafts" ? (
+                      <Pen size={48} className="text-gray-400 dark:text-slate-400" />
+                    ) : (
+                      <FileText size={48} className="text-gray-400 dark:text-slate-400" />
+                    )}
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                    No {activeTab === "saved" ? "Saved" : activeTab === "drafts" ? "Draft" : ""} Articles Yet
+                  </h3>
+                  <p className="text-gray-500 dark:text-slate-400 mb-6 max-w-md mx-auto">
+                    {activeTab === "saved" 
+                      ? "Start saving articles you love to read them later!" 
+                      : activeTab === "drafts"
+                      ? "Your draft articles will appear here once you create them."
+                      : "Start creating amazing content to share with the world!"}
                   </p>
                   {activeTab === "articles" && (
-                    <a
+                    <motion.a
                       href="/new-article"
-                      className="inline-block mt-4 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="inline-flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl font-semibold shadow-lg transition-all duration-300"
                     >
-                      Create Your First Article
-                    </a>
+                      <Pen size={18} />
+                      <span>Create Your First Article</span>
+                    </motion.a>
                   )}
-                </div>
+                  {activeTab === "saved" && (
+                    <motion.a
+                      href="/"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="inline-flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl font-semibold shadow-lg transition-all duration-300"
+                    >
+                      <Eye size={18} />
+                      <span>Browse Articles</span>
+                    </motion.a>
+                  )}
+                </motion.div>
               )}
             </motion.div>
           </div>
@@ -723,47 +876,82 @@ export default function Profile() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+            onClick={() => setIsEditing(false)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="max-w-md w-full bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-lg"
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ duration: 0.2, type: "spring" }}
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-lg w-full bg-white dark:bg-slate-800 rounded-3xl border border-gray-200 dark:border-slate-700 shadow-2xl overflow-hidden"
             >
-              <h3 className="text-xl font-semibold mb-4">Edit Profile</h3>
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-4">
+                <h3 className="text-2xl font-bold text-white flex items-center space-x-2">
+                  <Settings size={24} />
+                  <span>Edit Profile</span>
+                </h3>
+              </div>
 
-              <label className="block text-sm font-medium mb-1">Display Name</label>
-              <input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900 mb-4"
-                placeholder="Enter your display name"
-              />
+              {/* Modal Content */}
+              <div className="p-6 space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-slate-300">
+                    Display Name
+                  </label>
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full rounded-xl border-2 border-gray-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
+                    placeholder="Enter your display name"
+                  />
+                </div>
 
-              <label className="block text-sm font-medium mb-1">Bio (optional)</label>
-              <textarea
-                value={editBio}
-                onChange={(e) => setEditBio(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900 mb-4"
-                placeholder="Tell us about yourself..."
-                rows={3}
-              />
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-slate-300">
+                    Email
+                  </label>
+                  <input
+                    value={userData?.email || ""}
+                    disabled
+                    className="w-full rounded-xl border-2 border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-900/50 text-gray-500 dark:text-slate-400 cursor-not-allowed"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Email cannot be changed</p>
+                </div>
 
-              <div className="flex items-center justify-end space-x-3">
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={saveProfile} 
-                  className="px-5 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white transition-colors"
-                >
-                  Save
-                </button>
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-slate-300">
+                    Bio (optional)
+                  </label>
+                  <textarea
+                    value={editBio}
+                    onChange={(e) => setEditBio(e.target.value)}
+                    className="w-full rounded-xl border-2 border-gray-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-900 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all resize-none"
+                    placeholder="Tell us about yourself..."
+                    rows={4}
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-3 pt-4">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setIsEditing(false)}
+                    className="px-5 py-2.5 rounded-xl border-2 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium"
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={saveProfile}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-semibold shadow-lg transition-all"
+                  >
+                    Save Changes
+                  </motion.button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
